@@ -9,6 +9,7 @@ import { join } from 'node:path';
 const SRC = 'contributions';
 const OUT = 'public';
 const REPO = 'https://github.com/BuddyTheDwarf/chaosbox';
+const SITE = 'https://buddythedwarf.github.io/chaosbox';
 const CONTRIB = `${REPO}/blob/main/CONTRIBUTING.md`;
 const HISTORY = `${REPO}/pulls?q=is%3Apr+is%3Amerged`;
 
@@ -90,6 +91,14 @@ const page = `<!doctype html>
 <meta property="og:title" content="chaosbox — a website the crowd builds">
 <meta property="og:description" content="Open a PR. Get votes. A bot ships it live. No gatekeeper.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="${SITE}/">
+<meta property="og:image" content="${SITE}/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="chaosbox — a website the crowd builds">
+<meta name="twitter:description" content="Open a PR. Get votes. A bot ships it live. No gatekeeper.">
+<meta name="twitter:image" content="${SITE}/og.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -370,4 +379,6 @@ $EDITOR contributions/my-page/index.html</pre></div></div>
 </html>`;
 
 await writeFile(join(OUT, 'index.html'), page);
+// static social/OG card (regenerate with: typst compile assets/og.typ assets/og.png --ppi 72)
+try { await cp('assets/og.png', join(OUT, 'og.png')); } catch { console.warn('no assets/og.png — skipping OG image'); }
 console.log(`built ${count} contribution(s) -> ${OUT}/`);
