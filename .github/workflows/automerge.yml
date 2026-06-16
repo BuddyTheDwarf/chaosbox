@@ -57,12 +57,14 @@ jobs:
                 core.info(`${tag}: touches files outside sandbox, skip`); continue;
               }
 
-              // CI green (Actions check runs on the head sha)
+              // CI green: the required 'guard' check must have passed on the head sha.
+              // (We gate on guard specifically, not "all checks", so the cosmetic preview job
+              //  can't block a merge.)
               const { data: c } = await github.rest.checks.listForRef({ owner, repo, ref: pr.head.sha });
               const runs = c.check_runs || [];
-              const ciOk = runs.length > 0 && runs.every(r =>
+              const ciOk = runs.some(r => r.name === 'guard' &&
                 r.status === 'completed' && ['success', 'neutral', 'skipped'].includes(r.conclusion));
-              if (!ciOk) { core.info(`${tag}: CI not green`); continue; }
+              if (!ciOk) { core.info(`${tag}: required check 'guard' not green`); continue; }
 
               // tally distinct 👍 / 👎 users on the PR
               const reactions = await github.paginate(github.rest.reactions.listForIssue, { owner, repo, issue_number: pr.number });

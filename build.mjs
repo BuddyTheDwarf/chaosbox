@@ -28,7 +28,7 @@ for (const d of dirs) {
 
 const grid = cards.map(c => `
     <figure class="card">
-      <iframe src="/c/${encodeURIComponent(c.name)}/index.html" sandbox="allow-scripts"
+      <iframe src="c/${encodeURIComponent(c.name)}/index.html" sandbox="allow-scripts"
               loading="lazy" title="${esc(c.title)}"></iframe>
       <figcaption>${esc(c.title)}<span>/${esc(c.name)}</span></figcaption>
     </figure>`).join('');

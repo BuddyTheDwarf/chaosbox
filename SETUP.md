@@ -1,88 +1,53 @@
-# chaosbox — one-time setup
+# chaosbox — setup
 
-Only the things a human must click. The repo itself is already scaffolded and committed locally at
-`~/Desktop/Projects/chaosbox`.
+How this instance is wired, in case you want to fork the idea.
 
-## 1. Throwaway GitHub account (recommended, not strictly required)
+## 1. Throwaway GitHub account (recommended)
 
-A public "anyone can merge" experiment is worth isolating from your real identity. If it gets abused,
-it's not on `jordanlloydperez@`.
-
-- [ ] Dedicated email (fresh Gmail / Proton), e.g. `chaosbox.deploy@…`.
-- [ ] Sign up GitHub with it. Enable 2FA. Use a **separate browser profile** from JD SOL / client work.
-
-> Shortcut if you don't care about isolation: use your existing GitHub account and skip to step 3. You
-> lose only the blast-radius separation.
-
-## 2. SSH key for that account (only if you used a separate account)
+A public "anyone can merge" experiment is worth isolating from your real identity: fresh email,
+separate browser profile, 2FA. Lock the repo's git identity so you never commit as yourself:
 
 ```sh
-ssh-keygen -t ed25519 -C "chaosbox-deploy" -f ~/.ssh/chaosbox_ed25519
+git config user.name  "<account>"
+git config user.email "<id>+<account>@users.noreply.github.com"   # GitHub's private noreply
 ```
 
-Add the **public** key (`~/.ssh/chaosbox_ed25519.pub`) to the new account → Settings → SSH keys.
-Then tell git which key to use for it, in `~/.ssh/config`:
+## 2. Push the repo
 
-```
-Host github-chaosbox
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/chaosbox_ed25519
-  IdentitiesOnly yes
-```
+Create an empty **public** repo and push. The first push needs a token with `repo` + `workflow`
+scopes (classic) — `workflow` is required to push the `.github/workflows/*` files. The merge bot
+itself never uses a PAT; it runs on the built-in `GITHUB_TOKEN`.
 
-(Your main key stays untouched. Use the `github-chaosbox` host in the remote URL below.)
+## 3. Enable GitHub Pages
 
-## 3. Create the repo and push
+**Settings → Pages → Source = GitHub Actions.** `pages.yml` then publishes `public/` on every push to
+`main`. Production lands at `https://<account>.github.io/<repo>/`. No phone, no host account, no card.
 
-Create an **empty public** repo named `chaosbox` on the account (no README/license — it's already here).
+## 4. Branch protection (Settings → Branches → add rule for `main`)
 
-```sh
-cd ~/Desktop/Projects/chaosbox
-git branch -M main
-# separate-account SSH:
-git remote add origin git@github-chaosbox:<account>/chaosbox.git
-# …or HTTPS / your main account:
-# git remote add origin https://github.com/<account>/chaosbox.git
-git push -u origin main
-```
+- Require status check: **`guard`**.
+- Block force-pushes and deletions; require linear history.
+- Do **not** enforce for admins (so you can still push infra fixes to `main`).
 
-Then edit `OWNER/REPO` in `build.mjs` (the "Add yours" link) to your account/repo and push again.
-
-## 4. Vercel
-
-- [ ] Log in to Vercel with **Log in with GitHub** (the chaosbox account).
-- [ ] **Set a spending cap** before anything else (Settings → Billing).
-- [ ] Import the repo. Framework preset: **Other** (`vercel.json` already sets build + output).
-- [ ] Confirm preview deployments are on for PRs (default yes).
-- No environment variables needed. If you ever add a secret, scope it to **Production** only.
-
-## 5. Branch protection on `main` (Settings → Branches → Add rule)
-
-- [ ] **Require status checks to pass** → select the `ci` check. (This is what enforces the sandbox.)
-- [ ] Require branches up to date before merging.
-- [ ] Block force pushes and deletions.
-- [ ] **Do NOT** "include administrators" — so you can still push infra fixes to `main` directly.
-- Public repos: outsiders can't push anyway (they fork + PR), so no extra access config needed.
-
-## 6. Repo Actions variables (Settings → Secrets and variables → Actions → Variables)
+## 5. Actions variables (Settings → Secrets and variables → Actions → Variables)
 
 | Variable | Value | Meaning |
 |----------|-------|---------|
-| `BOT_ENABLED` | *(leave unset for now)* | The kill switch. Bot is OFF until this is exactly `true`. |
+| `BOT_ENABLED` | *(leave unset until ready)* | Kill switch. Bot is off unless this is exactly `true`. |
 | `VOTE_THRESHOLD` | `3` | Net 👍−👎 from distinct users to merge. |
-| `MIN_PR_AGE_HOURS` | `1` | Minimum PR age before it can merge. |
+| `MIN_PR_AGE_HOURS` | `1` | Minimum PR age before merge. |
 
-## 7. Go live
+## 6. Go live
 
-- [ ] Open a test PR (add `contributions/test/index.html`), confirm CI runs + Vercel posts a preview.
-- [ ] Give it 3 👍 from distinct accounts, wait past the age window.
-- [ ] Set `BOT_ENABLED=true`. Run the **automerge** workflow manually once (Actions → automerge → Run
-      workflow) to confirm it merges. Now it self-runs every 10 min.
-- [ ] (Optional) throwaway custom domain.
+- Open a test PR adding `contributions/test/index.html`. The preview bot comments a live link.
+- Approve the CI run (GitHub asks for first-time fork contributors) and confirm `guard` goes green.
+- Get it past the vote threshold + age window.
+- Set `BOT_ENABLED=true`, run the **automerge** workflow once manually to confirm, then it self-runs
+  every 10 min.
 
-## What you do NOT need (vs. the original plan)
+## Not needed (vs. the usual setup)
 
-- ❌ **No fine-grained PAT** — the bot uses the built-in `GITHUB_TOKEN`.
-- ❌ **No CODEOWNERS** — the required `ci` check is the sandbox guardrail.
-- ❌ **No Next.js / framework** — contributions are static HTML; `build.mjs` is the whole build.
+- ❌ No deploy host account (Vercel/Netlify/Cloudflare) — GitHub Pages covers production, and
+  `raw.githack.com` covers per-PR previews. (Cloudflare Pages won't preview fork PRs anyway.)
+- ❌ No fine-grained PAT for the bot — built-in `GITHUB_TOKEN`.
+- ❌ No CODEOWNERS — the required `guard` check is the sandbox guardrail.
