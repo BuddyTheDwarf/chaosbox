@@ -1,0 +1,20 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>game of life</title>
+<meta name="description" content="Conway's Game of Life, reseeding itself forever. Pure canvas.">
+<style>html,body{margin:0;height:100%;background:#0b0c0a;overflow:hidden}canvas{display:block}</style>
+</head><body><canvas id="c"></canvas><script>
+const c=document.getElementById('c'),x=c.getContext('2d'),S=8;let cols,rows,g,frame=0;
+function seed(){cols=Math.ceil(innerWidth/S);rows=Math.ceil(innerHeight/S);c.width=cols*S;c.height=rows*S;
+  g=Array.from({length:rows},()=>Array.from({length:cols},()=>Math.random()<.22?1:0));frame=0;}
+seed();addEventListener('resize',seed);
+function step(){const n=g.map(r=>r.slice());let live=0;
+  for(let y=0;y<rows;y++)for(let xx=0;xx<cols;xx++){let s=0;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;
+      s+=g[(y+dy+rows)%rows][(xx+dx+cols)%cols];}
+    n[y][xx]=g[y][xx]?(s===2||s===3?1:0):(s===3?1:0);live+=n[y][xx];}
+  g=n;x.fillStyle='#0b0c0a';x.fillRect(0,0,c.width,c.height);x.fillStyle='#bef264';
+  for(let y=0;y<rows;y++)for(let xx=0;xx<cols;xx++)if(g[y][xx])x.fillRect(xx*S,y*S,S-1,S-1);
+  if(++frame>800||live<8)seed();}
+setInterval(step,90);
+</script></body></html>
