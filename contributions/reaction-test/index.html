@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>reaction test</title>
+<meta name="description" content="Wait for lime, then tap as fast as you can. A tiny reaction-time game.">
+<style>html,body{margin:0;height:100%;font-family:system-ui;color:#fff;user-select:none}
+#s{height:100%;display:grid;place-items:center;text-align:center;font-size:1.4rem;font-weight:700;
+   background:#7aa2ff;cursor:pointer;transition:background .05s}
+#s.go{background:#bef264;color:#0b0c0a}#s.wait{background:#f472b6}
+small{display:block;opacity:.85;font-weight:400;font-size:.8rem;margin-top:8px}</style>
+</head><body><div id="s">Click to start<small>reaction-time game</small></div><script>
+const s=document.getElementById('s');let state='idle',t0,to;
+s.onclick=()=>{
+  if(state==='idle'||state==='done'){state='wait';s.className='wait';s.innerHTML='Wait for lime…';
+    to=setTimeout(()=>{state='go';s.className='go';s.innerHTML='TAP!';t0=performance.now();},1000+Math.random()*2500);}
+  else if(state==='wait'){clearTimeout(to);state='done';s.className='';s.innerHTML='Too soon! <small>click to retry</small>';}
+  else if(state==='go'){const ms=Math.round(performance.now()-t0);state='done';s.className='';
+    s.innerHTML=ms+' ms <small>click to retry</small>';}};
+</script></body></html>
