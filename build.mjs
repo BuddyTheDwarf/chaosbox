@@ -127,7 +127,7 @@ const page = `<!doctype html>
   nav{display:flex;align-items:center;gap:22px}
   nav a{color:var(--muted);font-size:14.5px;font-weight:500;transition:color .15s}
   nav a:hover{color:var(--fg)}
-  nav a.gh{color:var(--ink);font-weight:700;border-radius:10px;padding:7px 14px;
+  nav a.gh{color:var(--ink);font-weight:700;border-radius:10px;padding:10px 16px;display:inline-flex;align-items:center;min-height:44px;
     background:var(--accent);transition:transform .15s,box-shadow .15s;box-shadow:0 3px 0 var(--accent-deep)}
   nav a.gh:hover{transform:translateY(-1px);box-shadow:0 5px 0 var(--accent-deep)}
   @media(max-width:680px){nav .hide{display:none}}
@@ -183,7 +183,7 @@ const page = `<!doctype html>
     border-radius:6px;padding:1px 6px;color:#cdd9c5}
 
   /* feature grid */
-  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr))}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;transition:border-color .15s,transform .15s}
   .card:hover{border-color:#3a4030;transform:translateY(-3px)}
   .card .ico{font-size:22px;margin-bottom:12px}
@@ -194,12 +194,12 @@ const page = `<!doctype html>
   /* filter bar + the live wall */
   .filterbar{display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap}
   .filterbar input{flex:1;min-width:200px;background:var(--surface);border:1px solid var(--border);
-    border-radius:10px;padding:11px 14px;color:var(--fg);font-family:var(--mono);font-size:13.5px}
+    border-radius:10px;padding:11px 14px;color:var(--fg);font-family:var(--mono);font-size:16px}
   .filterbar input:focus{outline:0;border-color:var(--accent)}
-  .filterbar input::placeholder{color:#5c6350}
+  .filterbar input::placeholder{color:#7c8270}
   .filterbar .hist{font-family:var(--mono);color:var(--accent);font-size:13.5px;font-weight:600;white-space:nowrap}
   .filterbar .hist:hover{color:var(--fg)}
-  .wall{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .wall{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr))}
   .wall figure{margin:0;background:var(--surface);border:1px solid var(--border);
     border-radius:14px;overflow:hidden;transition:border-color .15s,transform .15s}
   .wall figure:hover{border-color:#3a4030;transform:translateY(-3px)}
@@ -211,7 +211,7 @@ const page = `<!doctype html>
   .wall figcaption{padding:.8rem .9rem;border-top:1px solid var(--border)}
   .wall .row{display:flex;justify-content:space-between;gap:.6rem;align-items:baseline}
   .wall figcaption b{font-weight:600;font-size:14.5px}
-  .wall .path{color:#5c6350;font-family:var(--mono);font-size:12px;white-space:nowrap}
+  .wall .path{color:var(--muted);font-family:var(--mono);font-size:12px;white-space:nowrap}
   .wall .desc{margin:.45rem 0 .4rem;color:var(--muted);font-size:13.5px;line-height:1.45}
   .wall .sub{margin-top:.3rem;font-size:12.5px}
   .wall .who{color:var(--muted);font-family:var(--mono)}
