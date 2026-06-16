@@ -4,6 +4,9 @@
 2. Add **one** folder: `contributions/<your-name>/index.html`. It's a single, self-contained HTML
    page (inline CSS/JS is fine). It will be shown on the wall inside a sandboxed `<iframe>`
    (`allow-scripts` only — no cookies, no network to us, no access to the parent page).
+   - Give it a `<title>` and a `<meta name="description" content="…">` — those become your card's
+     name and one-line blurb on the wall. Your name and the PR link are filled in automatically from
+     the merge, so there's no author field to set.
 3. **Open a PR.** CI checks that you only touched `/contributions/` and that the site still builds.
 4. **Rally votes.** People react 👍 / 👎 on your PR. Once **net 👍 ≥ the threshold**, CI is green,
    and the PR is at least an hour old, a bot squash-merges it and it goes live automatically.
