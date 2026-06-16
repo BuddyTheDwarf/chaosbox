@@ -2,6 +2,9 @@ name: automerge
 # The vote-tally bot. Runs on a schedule from the BASE repo (never executes PR code) -> inherently
 # fork-safe. Uses the built-in GITHUB_TOKEN (no PAT). Fails CLOSED: does nothing unless the repo
 # variable BOT_ENABLED == "true" (that's the kill switch).
+#
+# NOTE: a merge done with GITHUB_TOKEN does NOT trigger pages.yml (GitHub's recursion guard), so the
+# `deploy` job below republishes the site whenever this run actually merged something.
 on:
   schedule:
     - cron: '*/10 * * * *'   # every 10 min
@@ -19,14 +22,18 @@ concurrency:
 jobs:
   tally:
     runs-on: ubuntu-latest
+    outputs:
+      merged: ${{ steps.bot.outputs.merged }}
     steps:
       - uses: actions/checkout@v4   # for bot/banlist.txt
-      - uses: actions/github-script@v7
+      - id: bot
+        uses: actions/github-script@v7
         with:
           script: |
             // --- kill switch (fail closed) ---
             if ('${{ vars.BOT_ENABLED }}' !== 'true') {
               core.info('BOT_ENABLED != "true" — kill switch on, doing nothing.');
+              core.setOutput('merged', 'false');
               return;
             }
             const THRESHOLD = Number('${{ vars.VOTE_THRESHOLD }}' || 3);   // net 👍-👎 needed
@@ -42,6 +49,7 @@ jobs:
 
             const { owner, repo } = context.repo;
             const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open' });
+            let merged = 0;
 
             for (const pr of prs) {
               const tag = `PR #${pr.number} (@${pr.user.login})`;
@@ -58,8 +66,6 @@ jobs:
               }
 
               // CI green: the required 'guard' check must have passed on the head sha.
-              // (We gate on guard specifically, not "all checks", so the cosmetic preview job
-              //  can't block a merge.)
               const { data: c } = await github.rest.checks.listForRef({ owner, repo, ref: pr.head.sha });
               const runs = c.check_runs || [];
               const ciOk = runs.some(r => r.name === 'guard' &&
@@ -80,8 +86,35 @@ jobs:
               // merge
               try {
                 await github.rest.pulls.merge({ owner, repo, pull_number: pr.number, merge_method: 'squash' });
+                merged++;
                 core.info(`${tag}: MERGED (net votes ${net})`);
                 await github.rest.issues.createComment({ owner, repo, issue_number: pr.number,
                   body: `🎉 Merged by chaosbox — net votes **${net}** ≥ ${THRESHOLD}. Live shortly.` });
               } catch (e) { core.warning(`${tag}: merge failed: ${e.message}`); }
             }
+            core.setOutput('merged', merged > 0 ? 'true' : 'false');
+
+  # Republish the site only if the tally job merged something (GITHUB_TOKEN pushes don't trigger pages.yml).
+  deploy:
+    needs: tally
+    if: needs.tally.outputs.merged == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # full history so build.mjs can read who/when each page was added
+      - run: node build.mjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: public }
+      - id: deploy
+        uses: actions/deploy-pages@v4
