@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>hello, chaosbox</title>
+<style>
+  body{margin:0;height:100vh;display:grid;place-items:center;font:600 1.2rem system-ui,sans-serif;
+       background:#111;color:#fff;background:linear-gradient(135deg,#1a1a2e,#16213e)}
+  button{font:inherit;cursor:pointer;padding:.6rem 1rem;border:0;border-radius:10px;background:#7aa2ff;color:#0b0b0e}
+</style></head>
+<body>
+  <div>
+    <p id="msg">first one. open a PR to add yours.</p>
+    <button onclick="document.getElementById('msg').textContent='👋 '+new Date().toLocaleTimeString()">poke</button>
+  </div>
+  <!-- A contribution is a single self-contained folder under /contributions/<name>/ with an index.html.
+       It is shown on the wall inside a sandboxed iframe (allow-scripts only — no cookies, no parent access). -->
+</body></html>

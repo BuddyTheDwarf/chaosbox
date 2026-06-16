@@ -1,0 +1,85 @@
+name: automerge
+# The vote-tally bot. Runs on a schedule from the BASE repo (never executes PR code) -> inherently
+# fork-safe. Uses the built-in GITHUB_TOKEN (no PAT). Fails CLOSED: does nothing unless the repo
+# variable BOT_ENABLED == "true" (that's the kill switch).
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # every 10 min
+  workflow_dispatch: {}       # manual run button
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: automerge
+  cancel-in-progress: false
+
+jobs:
+  tally:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4   # for bot/banlist.txt
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            // --- kill switch (fail closed) ---
+            if ('${{ vars.BOT_ENABLED }}' !== 'true') {
+              core.info('BOT_ENABLED != "true" — kill switch on, doing nothing.');
+              return;
+            }
+            const THRESHOLD = Number('${{ vars.VOTE_THRESHOLD }}' || 3);   // net 👍-👎 needed
+            const MIN_AGE_H = Number('${{ vars.MIN_PR_AGE_HOURS }}' || 1); // min PR age, hours
+
+            // --- ban list ---
+            const fs = require('fs');
+            let banned = new Set();
+            try {
+              banned = new Set(fs.readFileSync('bot/banlist.txt', 'utf8')
+                .split('\n').map(s => s.trim().toLowerCase()).filter(s => s && !s.startsWith('#')));
+            } catch {}
+
+            const { owner, repo } = context.repo;
+            const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open' });
+
+            for (const pr of prs) {
+              const tag = `PR #${pr.number} (@${pr.user.login})`;
+              if (pr.draft) { core.info(`${tag}: draft, skip`); continue; }
+              if (banned.has(pr.user.login.toLowerCase())) { core.info(`${tag}: author banned, skip`); continue; }
+
+              const ageH = (Date.now() - new Date(pr.created_at)) / 3.6e6;
+              if (ageH < MIN_AGE_H) { core.info(`${tag}: too young (${ageH.toFixed(1)}h)`); continue; }
+
+              // sandbox: every changed file must live under contributions/
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number });
+              if (files.some(f => !f.filename.startsWith('contributions/'))) {
+                core.info(`${tag}: touches files outside sandbox, skip`); continue;
+              }
+
+              // CI green (Actions check runs on the head sha)
+              const { data: c } = await github.rest.checks.listForRef({ owner, repo, ref: pr.head.sha });
+              const runs = c.check_runs || [];
+              const ciOk = runs.length > 0 && runs.every(r =>
+                r.status === 'completed' && ['success', 'neutral', 'skipped'].includes(r.conclusion));
+              if (!ciOk) { core.info(`${tag}: CI not green`); continue; }
+
+              // tally distinct 👍 / 👎 users on the PR
+              const reactions = await github.paginate(github.rest.reactions.listForIssue, { owner, repo, issue_number: pr.number });
+              const up = new Set(), down = new Set();
+              for (const r of reactions) {
+                if (!r.user) continue;
+                if (r.content === '+1') up.add(r.user.login);
+                if (r.content === '-1') down.add(r.user.login);
+              }
+              const net = up.size - down.size;
+              if (net < THRESHOLD) { core.info(`${tag}: votes ${net} < ${THRESHOLD}`); continue; }
+
+              // merge
+              try {
+                await github.rest.pulls.merge({ owner, repo, pull_number: pr.number, merge_method: 'squash' });
+                core.info(`${tag}: MERGED (net votes ${net})`);
+                await github.rest.issues.createComment({ owner, repo, issue_number: pr.number,
+                  body: `🎉 Merged by chaosbox — net votes **${net}** ≥ ${THRESHOLD}. Live shortly.` });
+              } catch (e) { core.warning(`${tag}: merge failed: ${e.message}`); }
+            }

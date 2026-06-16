@@ -1,0 +1,3 @@
+# chaosbox ban list — one GitHub username per line.
+# These authors' PRs are never auto-merged. Lines starting with # are ignored.
+# Edit this file, commit to main. Takes effect on the bot's next run.

@@ -1,0 +1,37 @@
+name: ci
+# Fork-safe: pull_request (NOT pull_request_target). Preview builds see no secrets.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Only /contributions may change
+        run: |
+          base="origin/${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD)
+          echo "Changed files:"; echo "$changed"
+          bad=$(echo "$changed" | grep -v '^contributions/' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::PR touches files outside /contributions/ — rejected:"; echo "$bad"
+            exit 1
+          fi
+
+      - name: One contribution per PR
+        run: |
+          base="origin/${{ github.base_ref }}"
+          dirs=$(git diff --name-only "$base"...HEAD | sed -n 's#^contributions/\([^/]*\)/.*#\1#p' | sort -u)
+          count=$(echo "$dirs" | grep -c . || true)
+          echo "Contribution(s) touched: $dirs ($count)"
+          if [ "$count" -gt 1 ]; then echo "::error::One contribution per PR, please."; exit 1; fi
+
+      - name: Build must succeed
+        run: node build.mjs
