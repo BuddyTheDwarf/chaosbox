@@ -44,8 +44,8 @@ for (const d of dirs) {
     const html = await readFile(join(SRC, d.name, 'index.html'), 'utf8');
     const mt = html.match(/<title>([^<]*)<\/title>/i);
     if (mt && mt[1].trim()) title = mt[1].trim();
-    const md = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']*)["']/i);
-    if (md && md[1].trim()) desc = md[1].trim();
+    const md = html.match(/<meta\s+name=["']description["']\s+content=(["'])(.*?)\1/is);
+    if (md && md[2].trim()) desc = md[2].trim();
   } catch { /* no index.html -> dir name as title */ }
   cards.push({ name: d.name, title, desc, ...addedInfo(d.name) });
 }
