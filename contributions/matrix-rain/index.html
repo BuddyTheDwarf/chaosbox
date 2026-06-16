@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>matrix rain</title>
+<meta name="description" content="Falling green code, the classic — in about 20 lines of canvas.">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block}</style>
+</head><body><canvas id="c"></canvas><script>
+const c=document.getElementById('c'),x=c.getContext('2d'),f=14,
+  ch='アァカサタナハマヤラ0123456789ABCDEF'.split('');let w,h,cols,drops;
+function reset(){w=c.width=innerWidth;h=c.height=innerHeight;cols=Math.ceil(w/f);drops=Array(cols).fill(1);}
+reset();addEventListener('resize',reset);
+setInterval(()=>{x.fillStyle='rgba(0,0,0,.06)';x.fillRect(0,0,w,h);
+  x.fillStyle='#3fd17a';x.font=f+'px monospace';
+  for(let i=0;i<cols;i++){x.fillText(ch[Math.random()*ch.length|0],i*f,drops[i]*f);
+    if(drops[i]*f>h&&Math.random()>.975)drops[i]=0;drops[i]++;}},45);
+</script></body></html>

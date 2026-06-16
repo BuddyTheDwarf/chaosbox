@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>warp starfield</title>
+<meta name="description" content="An endless flight through the stars. Pure canvas, zero libraries.">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block}</style>
+</head><body><canvas id="c"></canvas><script>
+const c=document.getElementById('c'),x=c.getContext('2d');let w,h,cx,cy,stars;
+function reset(){w=c.width=innerWidth;h=c.height=innerHeight;cx=w/2;cy=h/2;
+  stars=Array.from({length:420},()=>({x:(Math.random()-.5)*w,y:(Math.random()-.5)*h,z:Math.random()*w}));}
+reset();addEventListener('resize',reset);
+(function loop(){x.fillStyle='rgba(0,0,0,.3)';x.fillRect(0,0,w,h);
+  for(const s of stars){s.z-=4;if(s.z<=0){s.z=w;s.x=(Math.random()-.5)*w;s.y=(Math.random()-.5)*h;}
+    const k=128/s.z,px=cx+s.x*k,py=cy+s.y*k,r=(1-s.z/w)*2.6;
+    if(px<0||px>w||py<0||py>h)continue;
+    x.fillStyle='#bef264';x.beginPath();x.arc(px,py,r,0,7);x.fill();}
+  requestAnimationFrame(loop);})();
+</script></body></html>
