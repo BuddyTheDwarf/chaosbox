@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>hue clock</title>
+<meta name="description" content="A clock whose background drifts through the spectrum, one degree per second.">
+<style>html,body{margin:0;height:100%;display:grid;place-items:center;font-family:system-ui;
+  color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.3);transition:background .9s linear}
+#t{font-size:3rem;font-weight:800;letter-spacing:.04em}</style>
+</head><body><div id="t">--:--:--</div><script>
+const t=document.getElementById('t');
+function tick(){const d=new Date();
+  document.body.style.background='hsl('+(d.getSeconds()*6)+',70%,45%)';
+  t.textContent=d.toLocaleTimeString();}
+tick();setInterval(tick,1000);
+</script></body></html>
