@@ -56,31 +56,48 @@ jobs:
               if (pr.draft) { core.info(`${tag}: draft, skip`); continue; }
               if (banned.has(pr.user.login.toLowerCase())) { core.info(`${tag}: author banned, skip`); continue; }
 
-              const ageH = (Date.now() - new Date(pr.created_at)) / 3.6e6;
-              if (ageH < MIN_AGE_H) { core.info(`${tag}: too young (${ageH.toFixed(1)}h)`); continue; }
-
               // sandbox: every changed file must live under contributions/
               const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number });
               if (files.some(f => !f.filename.startsWith('contributions/'))) {
                 core.info(`${tag}: touches files outside sandbox, skip`); continue;
               }
 
+              const ageH = (Date.now() - new Date(pr.created_at)) / 3.6e6;
+
               // CI green: the required 'guard' check must have passed on the head sha.
               const { data: c } = await github.rest.checks.listForRef({ owner, repo, ref: pr.head.sha });
               const runs = c.check_runs || [];
               const ciOk = runs.some(r => r.name === 'guard' &&
                 r.status === 'completed' && ['success', 'neutral', 'skipped'].includes(r.conclusion));
-              if (!ciOk) { core.info(`${tag}: required check 'guard' not green`); continue; }
 
-              // tally distinct 👍 / 👎 users on the PR
-              const reactions = await github.paginate(github.rest.reactions.listForIssue, { owner, repo, issue_number: pr.number });
+              // tally distinct 👍 / 👎 users — counted on the PR itself AND on any bot comment, because
+              // people naturally click the reaction under the preview/scoreboard comment (dedup by login).
+              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number });
               const up = new Set(), down = new Set();
-              for (const r of reactions) {
-                if (!r.user) continue;
-                if (r.content === '+1') up.add(r.user.login);
-                if (r.content === '-1') down.add(r.user.login);
-              }
+              const tallyInto = rs => { for (const r of rs) { if (!r.user) continue;
+                if (r.content === '+1') up.add(r.user.login); if (r.content === '-1') down.add(r.user.login); } };
+              tallyInto(await github.paginate(github.rest.reactions.listForIssue, { owner, repo, issue_number: pr.number }));
+              for (const cm of comments) if (cm.user && cm.user.type === 'Bot')
+                tallyInto(await github.paginate(github.rest.reactions.listForIssueComment, { owner, repo, comment_id: cm.id }));
               const net = up.size - down.size;
+
+              // live scoreboard so voters can SEE exactly how many votes are needed
+              const MARK = '<!-- chaosbox-tally -->';
+              const need = Math.max(0, THRESHOLD - net);
+              const ready = ciOk && ageH >= MIN_AGE_H && net >= THRESHOLD;
+              const board = `${MARK}\n### 🗳️ Vote status — **${net} / ${THRESHOLD}** net 👍\n` +
+                `👍 ${up.size} · 👎 ${down.size} · CI ${ciOk ? '✅' : '⏳'} · age ${ageH.toFixed(1)}h / ${MIN_AGE_H}h\n\n` +
+                (ready
+                  ? '✅ **All set — the bot merges this on its next run (within ~10 min).**'
+                  : `React 👍 on this PR (the description box at the top, or any bot comment here — both count) to vote it in — **${need}** more net 👍 needed` +
+                    `${ciOk ? '' : ' · waiting on CI'}${ageH < MIN_AGE_H ? ` · ${(MIN_AGE_H - ageH).toFixed(1)}h until eligible` : ''}.`);
+              const board0 = comments.find(cm => cm.user && cm.user.type === 'Bot' && (cm.body || '').includes(MARK));
+              if (board0) await github.rest.issues.updateComment({ owner, repo, comment_id: board0.id, body: board });
+              else await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body: board });
+
+              // merge gate
+              if (ageH < MIN_AGE_H) { core.info(`${tag}: too young (${ageH.toFixed(1)}h)`); continue; }
+              if (!ciOk) { core.info(`${tag}: required check 'guard' not green`); continue; }
               if (net < THRESHOLD) { core.info(`${tag}: votes ${net} < ${THRESHOLD}`); continue; }
 
               // merge

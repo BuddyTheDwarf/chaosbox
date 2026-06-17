@@ -29,6 +29,7 @@ jobs:
             const ref = pr.head.ref;
             const { owner, repo } = context.repo;
             const marker = '<!-- chaosbox-preview -->';
+            const threshold = Number('${{ vars.VOTE_THRESHOLD }}' || 3);
 
             const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number });
             const pages = files
@@ -43,7 +44,7 @@ jobs:
               body = `${marker}\n⚠️ No \`contributions/<name>/*.html\` file in this PR — nothing to preview. Add one and push.`;
             } else {
               const links = pages.map(p => `- [\`${p}\`](https://raw.githack.com/${head}/${ref}/${p})`).join('\n');
-              body = `${marker}\n🔎 **Live preview** (rendered from your fork):\n${links}\n\nLooks good? React 👍 on this PR. Enough net votes + green CI + an hour, and the bot ships it.`;
+              body = `${marker}\n🔎 **Live preview** (rendered from your fork):\n${links}\n\nLooks good? **React 👍 to vote** — on this comment or on the PR description box at the top (both count). Once it reaches **${threshold}** net 👍 + green CI + 1h, the bot merges it automatically. A live vote tally will appear below shortly.`;
             }
 
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number });
