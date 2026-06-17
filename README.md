@@ -2,6 +2,8 @@
 
 **🌐 Live: https://buddythedwarf.github.io/chaosbox/**
 
+**🚀 Latest page shipped: https://buddythedwarf.github.io/chaosbox/latest/** (always redirects to the newest contribution)
+
 A *modern Chaos*: a live site where anyone opens a PR adding a page under `/contributions`. The crowd
 votes 👍/👎 on the PR — enough net 👍 + green CI + an hour of age → a bot auto-merges and the site
 redeploys. Spiritual successor to [Chaosthebot/Chaos](https://github.com/Chaosthebot/Chaos), made safe

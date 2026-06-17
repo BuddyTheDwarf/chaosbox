@@ -36,18 +36,26 @@ await mkdir(join(OUT, 'c'), { recursive: true });
 const dirs = (await readdir(SRC, { withFileTypes: true }))
   .filter(d => d.isDirectory() && !d.name.startsWith('.'));
 
+const names = new Set(dirs.map(d => d.name));   // for validating remix-of links
+// "↳ remix of X" — links to the parent contribution when it still exists on the wall
+const lineageHtml = remix => !remix ? '' :
+  `↳ remix of ${names.has(remix)
+    ? `<a href="c/${encodeURIComponent(remix)}/index.html" target="_blank" rel="noopener">${esc(remix)}</a>`
+    : esc(remix)}`;
 const cards = [];
 for (const d of dirs) {
   await cp(join(SRC, d.name), join(OUT, 'c', d.name), { recursive: true });
-  let title = d.name, desc = '';
+  let title = d.name, desc = '', remix = '';
   try {
     const html = await readFile(join(SRC, d.name, 'index.html'), 'utf8');
     const mt = html.match(/<title>([^<]*)<\/title>/i);
     if (mt && mt[1].trim()) title = mt[1].trim();
     const md = html.match(/<meta\s+name=["']description["']\s+content=(["'])(.*?)\1/is);
     if (md && md[2].trim()) desc = md[2].trim();
+    const mr = html.match(/<meta\s+name=["']remix-of["']\s+content=(["'])(.*?)\1/is);
+    if (mr && mr[2].trim()) remix = mr[2].trim();
   } catch { /* no index.html -> dir name as title */ }
-  cards.push({ name: d.name, title, desc, ...addedInfo(d.name) });
+  cards.push({ name: d.name, title, desc, remix, ...addedInfo(d.name) });
 }
 cards.sort((a, b) => (b.iso || '').localeCompare(a.iso || ''));   // newest first
 
@@ -71,6 +79,7 @@ const wall = count ? `
         </a>
         <figcaption>
           <div class="row"><b>${esc(c.title)}</b><span class="path">/${esc(c.name)}</span></div>
+          ${c.remix ? `<div class="lineage">${lineageHtml(c.remix)}</div>` : ''}
           ${c.desc ? `<p class="desc">${esc(c.desc)}</p>` : ''}
           <div class="row sub">
             <span class="who">${who}${when ? ` · ${when}` : ''}</span>
@@ -80,6 +89,23 @@ const wall = count ? `
       </figure>`;
     }).join('')}
     </div>` : `<div class="empty">Nothing on the wall yet — be the first. <a href="${CONTRIB}">Open a PR →</a></div>`;
+
+// left timeline drawer — every shipped page, newest first, latest pinned. Closable. Links open full-page.
+const timeline = count ? `
+  <button class="tl-toggle" aria-label="Toggle project timeline" aria-controls="timeline" aria-expanded="false">☰ <span class="tl-tx">timeline</span></button>
+  <aside id="timeline" class="timeline" aria-label="Project timeline">
+    <div class="tl-head"><span class="tl-logo">chaos<b>box</b></span><span class="tl-count">${count} shipped</span></div>
+    <a class="tl-latest" href="c/${encodeURIComponent(cards[0].name)}/index.html" target="_blank" rel="noopener">▶ Open latest<small>${esc(cards[0].title)}</small></a>
+    <nav class="tl-list">${cards.map((c, i) => `
+      <a class="tl-item${i === 0 ? ' is-latest' : ''}" href="c/${encodeURIComponent(c.name)}/index.html" target="_blank" rel="noopener">
+        <span class="tl-when">${fmtDate(c.iso) || 'seed'}</span>
+        <span class="tl-title">${esc(c.title)}</span>
+        ${c.remix ? `<span class="tl-remix">${lineageHtml(c.remix)}</span>` : ''}
+        ${c.desc ? `<span class="tl-desc">${esc(c.desc)}</span>` : ''}
+        ${c.author ? `<span class="tl-who">by ${esc(c.author)}</span>` : ''}
+      </a>`).join('')}
+    </nav>
+  </aside>` : '';
 
 const page = `<!doctype html>
 <html lang="en">
@@ -221,6 +247,9 @@ const page = `<!doctype html>
   .wall .row{display:flex;justify-content:space-between;gap:.6rem;align-items:baseline}
   .wall figcaption b{font-weight:600;font-size:14.5px}
   .wall .path{color:var(--muted);font-family:var(--mono);font-size:12px;white-space:nowrap}
+  .wall .lineage{margin:.3rem 0 .1rem;font-family:var(--mono);font-size:11.5px;color:var(--accent)}
+  .wall .lineage a{color:var(--accent);border-bottom:1px solid transparent}
+  .wall .lineage a:hover{border-color:var(--accent)}
   .wall .desc{margin:.45rem 0 .4rem;color:var(--muted);font-size:13.5px;line-height:1.45}
   .wall .sub{margin-top:.3rem;font-size:12.5px}
   .wall .who{color:var(--muted);font-family:var(--mono)}
@@ -229,6 +258,22 @@ const page = `<!doctype html>
   .empty{background:var(--surface);border:1px dashed var(--border);border-radius:14px;
     padding:48px 24px;text-align:center;color:var(--muted)}
   .empty a{color:var(--accent);font-weight:600}
+
+  /* "waiting to merge — go vote" — populated live from the GitHub PR API */
+  .votes{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr))}
+  .vote-card{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;padding:16px 18px;transition:border-color .15s,transform .15s}
+  .vote-card:hover{border-color:var(--accent);transform:translateY(-3px)}
+  .vc-top{display:flex;justify-content:space-between;align-items:baseline;gap:.6rem}
+  .vc-num{font-family:var(--mono);font-weight:700;color:var(--accent);font-size:13px}
+  .vc-ago{font-family:var(--mono);color:var(--muted);font-size:11.5px;white-space:nowrap}
+  .vc-title{font-weight:600;font-size:15px;line-height:1.3}
+  .vc-by{font-family:var(--mono);color:var(--muted);font-size:12px}
+  .vc-cta{margin-top:8px;align-self:flex-start;background:var(--accent);color:var(--ink);font-weight:700;
+    font-size:13px;border-radius:8px;padding:7px 12px;box-shadow:0 3px 0 var(--accent-deep)}
+  .vote-card:hover .vc-cta{transform:translateY(-1px)}
+  .vote-msg{color:var(--muted);font-family:var(--mono);font-size:14px}
+  .vote-msg a{color:var(--accent);font-weight:600}
 
   /* code */
   pre{background:#0b0e08;border:1px solid var(--border);border-radius:14px;padding:18px 20px;
@@ -248,6 +293,42 @@ const page = `<!doctype html>
   footer a{color:var(--fg);font-weight:600;border-bottom:1px solid transparent;transition:color .15s,border-color .15s}
   footer a:hover{color:var(--accent);border-color:var(--accent)}
 
+  /* left timeline drawer — closable overlay, never reflows the centered content */
+  .tl-toggle{position:fixed;top:16px;left:16px;z-index:60;display:inline-flex;align-items:center;gap:6px;
+    background:var(--accent);color:var(--ink);border:0;border-radius:10px;padding:9px 13px;min-height:40px;
+    cursor:pointer;font-family:var(--mono);font-weight:700;font-size:13px;box-shadow:0 3px 0 var(--accent-deep);transition:transform .12s,left .22s}
+  .tl-toggle:hover{transform:translateY(-1px)}
+  body.tl-open .tl-toggle{left:264px}
+  .timeline{position:fixed;top:0;left:0;bottom:0;width:248px;z-index:55;display:flex;flex-direction:column;
+    background:var(--surface);border-right:1px solid var(--border);transform:translateX(-100%);visibility:hidden;
+    transition:transform .22s ease,visibility 0s linear .22s;overflow-y:auto;padding:62px 0 18px;box-shadow:0 0 60px -20px #000}
+  /* closed = visibility:hidden so its links leave the tab order / a11y tree; delayed so it stays visible through the slide-out */
+  body.tl-open .timeline{transform:none;visibility:visible;transition:transform .22s ease,visibility 0s linear 0s}
+  .tl-head{padding:0 16px 12px;display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--border)}
+  .tl-logo{font-family:var(--mono);font-weight:700;font-size:15px}
+  .tl-logo b{color:var(--accent)}
+  .tl-count{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .tl-latest{margin:13px 13px 4px;padding:11px 13px;border-radius:10px;background:var(--accent);color:var(--ink);
+    font-family:var(--display);font-weight:700;font-size:13.5px;display:flex;flex-direction:column;gap:2px;
+    box-shadow:0 3px 0 var(--accent-deep);transition:transform .12s}
+  .tl-latest small{font-family:var(--mono);font-weight:500;font-size:11px;opacity:.78}
+  .tl-latest:hover{transform:translateY(-1px)}
+  .tl-list{display:flex;flex-direction:column;padding:10px 0 0}
+  .tl-item{position:relative;margin-left:18px;padding:9px 16px 10px 16px;border-left:2px solid var(--border);
+    display:flex;flex-direction:column;gap:2px;transition:background .12s,border-color .12s}
+  .tl-item::before{content:"";position:absolute;left:-4px;top:13px;width:8px;height:8px;border-radius:50%;background:var(--border)}
+  .tl-item:hover{background:var(--elevated)}
+  .tl-item:hover::before{background:var(--accent)}
+  .tl-item.is-latest{border-color:var(--accent)}
+  .tl-item.is-latest::before{background:var(--accent);box-shadow:0 0 0 3px rgba(190,242,100,.2)}
+  .tl-when{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+  .tl-title{font-size:13.5px;font-weight:600;color:var(--fg);line-height:1.25}
+  .tl-remix{font-family:var(--mono);font-size:10.5px;color:var(--accent)}
+  .tl-remix a{color:var(--accent)}
+  .tl-desc{font-size:11.5px;color:var(--muted);line-height:1.4}
+  .tl-who{font-family:var(--mono);font-size:10px;color:#6b7359}
+  @media(max-width:560px){body.tl-open .tl-toggle{left:auto;right:14px}}
+
   @media(prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
       transition-duration:.001ms!important;scroll-behavior:auto!important}
@@ -255,13 +336,16 @@ const page = `<!doctype html>
 </style>
 </head>
 <body>
+${timeline}
 <div class="wrap">
 
   <header>
     <div class="logo">chaos<b>box</b><span class="cur">▌</span></div>
     <nav>
+      <a class="hide" href="#vote">Vote</a>
       <a class="hide" href="#how">How it works</a>
       <a class="hide" href="#wall">The wall</a>
+      ${count ? `<a class="hide" href="latest/" target="_blank" rel="noopener">Latest ↗</a>` : ''}
       <a class="hide" href="${HISTORY}" target="_blank" rel="noopener">History ↗</a>
       <a class="gh" href="${REPO}" target="_blank" rel="noopener">GitHub ↗</a>
     </nav>
@@ -292,6 +376,14 @@ reactions:  👍 5    👎 0</div>
       <div class="bubble"><span class="hd">🤖 chaosbox</span>🔎 Live preview: raw.githack.com/you/chaosbox/…<span class="score">🎉 Merged — net votes 5 ≥ 3, checks green. Live in ~30s.</span></div>
     </div>
   </div>
+
+  <section id="vote">
+    <p class="eyebrow">Waiting to merge</p>
+    <h2>Go vote. 🗳️</h2>
+    <p class="lede">These pull requests are one crowd decision from going live. Open one, try the live preview, and 👍
+      the ones you want shipped — viewing is open to everyone, a GitHub reaction is your vote.</p>
+    <div id="votes" class="votes"><p class="vote-msg">Loading open pull requests…</p></div>
+  </section>
 
   <section id="how">
     <p class="eyebrow">How it works</p>
@@ -363,6 +455,34 @@ $EDITOR contributions/my-page/index.html</pre></div></div>
 
 </div>
 <script>
+  // left timeline drawer: open by default on desktop, closed on narrow screens, toggle either way
+  (function(){
+    var b=document.body, t=document.querySelector('.tl-toggle'); if(!t) return;
+    if(window.innerWidth>900) b.classList.add('tl-open');
+    t.setAttribute('aria-expanded', b.classList.contains('tl-open'));
+    t.addEventListener('click',function(){t.setAttribute('aria-expanded', b.classList.toggle('tl-open'));});
+  })();
+  // "waiting to merge — go vote": live list of open PRs from the public GitHub API (no token, CORS-enabled)
+  (function(){
+    var box=document.getElementById('votes'); if(!box) return;
+    fetch('https://api.github.com/repos/BuddyTheDwarf/chaosbox/pulls?state=open&per_page=30')
+      .then(function(r){ if(!r.ok) throw 0; return r.json(); })
+      .then(function(prs){
+        prs=prs.filter(function(p){return !p.draft;});
+        if(!prs.length){ box.innerHTML='<p class="vote-msg">Nothing waiting right now — <a href="${CONTRIB}" target="_blank" rel="noopener">open the first PR →</a></p>'; return; }
+        box.innerHTML=prs.map(function(p){
+          var who=(p.user&&p.user.login)||'someone';
+          return '<a class="vote-card" href="'+p.html_url+'" target="_blank" rel="noopener">'
+            +'<div class="vc-top"><span class="vc-num">#'+p.number+'</span><span class="vc-ago">'+ago(p.created_at)+'</span></div>'
+            +'<div class="vc-title">'+esc(p.title)+'</div>'
+            +'<div class="vc-by">by '+esc(who)+'</div>'
+            +'<div class="vc-cta">Open &amp; vote 👍</div></a>';
+        }).join('');
+      })
+      .catch(function(){ box.innerHTML='<p class="vote-msg">Couldn’t load live PRs — <a href="${REPO}/pulls" target="_blank" rel="noopener">see open pull requests on GitHub →</a></p>'; });
+    function ago(iso){var s=(Date.now()-new Date(iso))/1000;if(s<3600)return Math.max(1,s/60|0)+'m ago';if(s<86400)return (s/3600|0)+'h ago';return (s/86400|0)+'d ago';}
+    function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  })();
   // live filter for the wall — by name, author, or description
   (function(){
     var q=document.getElementById('q'); if(!q) return;
@@ -379,6 +499,16 @@ $EDITOR contributions/my-page/index.html</pre></div></div>
 </html>`;
 
 await writeFile(join(OUT, 'index.html'), page);
+// stable shareable permalink that always opens the newest page: SITE/latest/
+if (count) {
+  const to = `../c/${encodeURIComponent(cards[0].name)}/index.html`;
+  await mkdir(join(OUT, 'latest'), { recursive: true });
+  await writeFile(join(OUT, 'latest', 'index.html'),
+    `<!doctype html><meta charset="utf-8"><title>chaosbox — latest</title>` +
+    `<meta http-equiv="refresh" content="0; url=${to}"><link rel="canonical" href="${to}">` +
+    `<script>location.replace(${JSON.stringify(to)})</script>` +
+    `<p>Redirecting to the latest page… <a href="${to}">open it</a>.</p>`);
+}
 // static social/OG card (regenerate with: typst compile assets/og.typ assets/og.png --ppi 72)
 try { await cp('assets/og.png', join(OUT, 'og.png')); } catch { console.warn('no assets/og.png — skipping OG image'); }
 console.log(`built ${count} contribution(s) -> ${OUT}/`);
