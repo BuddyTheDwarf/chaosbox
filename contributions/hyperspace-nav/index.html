@@ -1,0 +1,376 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>nav cockpit</title>
+<meta name="description" content="A remix of the hyperspace cockpit with a nav computer: lock a target, fly toward waypoints with a live distance countdown, auto-leveling roll, and full touch controls.">
+<meta name="remix-of" content="hyperspace">
+<!-- remix of contributions/hyperspace (cockpit) by NathBen97 (#4). Adds: nav computer (target lock + waypoint
+     countdown), auto-level roll, and proper touch controls (drag look / hold-dash thrust / pinch zoom). -->
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;cursor:crosshair;
+    -webkit-user-select:none;user-select:none}
+  body.look{cursor:grabbing}
+  canvas{display:block;position:absolute;inset:0}
+  #help{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:5;
+    color:#7fd0ff;font:600 10px/1.5 ui-monospace,monospace;letter-spacing:.14em;
+    text-transform:uppercase;text-shadow:0 0 8px #06f,0 1px 3px #000;opacity:.9;
+    pointer-events:none;text-align:center;max-width:94vw}
+  #help b{color:#ffe08a}
+</style>
+</head><body>
+<canvas id="c"></canvas>
+<div id="help"></div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const TOUCH = matchMedia('(hover:none) and (pointer:coarse)').matches || ('ontouchstart' in window);
+document.getElementById('help').innerHTML = TOUCH
+  ? '<b>drag</b> look &middot; <b>hold dash</b> thrust &middot; <b>pinch</b> zoom &middot; auto-nav on'
+  : '<b>W</b>/space thrust &middot; <b>S</b> brake &middot; <b>drag</b> look &middot; <b>Q/E</b> roll &middot; <b>T</b> lock target &middot; <b>scroll</b> zoom';
+let W,H,CX,CY,F,canopy=[],dashTop;
+
+function buildCockpit(){
+  CX=W/2;CY=H/2;F=H*0.95;
+  dashTop=Math.round(H*0.70);
+  canopy=[
+    [W*0.07,H*0.06],[W*0.93,H*0.06],
+    [W*0.99,H*0.34],[W*0.86,dashTop],
+    [W*0.14,dashTop],[W*0.01,H*0.34]
+  ];
+}
+function resize(){W=cv.width=innerWidth;H=cv.height=innerHeight;buildCockpit();}
+addEventListener('resize',resize);resize();
+
+// ---------- flight state -------------------------------------------------
+let speed=0;
+const MAX=300;
+let fov=1;
+let yaw=0,pitch=0,roll=0;
+let jump=0;
+
+const key={};
+addEventListener('keydown',e=>{key[e.code]=true;
+  if(e.code==='KeyT')lockNearest();
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();});
+addEventListener('keyup',e=>{key[e.code]=false;});
+
+// drag to look — only turns while you actively drag
+let dragging=false,lastX=0,lastY=0,accDX=0,accDY=0;
+addEventListener('mousedown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;document.body.classList.add('look');});
+addEventListener('mouseup',()=>{dragging=false;document.body.classList.remove('look');});
+addEventListener('mouseleave',()=>{dragging=false;document.body.classList.remove('look');});
+addEventListener('mousemove',e=>{if(!dragging)return;accDX+=e.clientX-lastX;accDY+=e.clientY-lastY;lastX=e.clientX;lastY=e.clientY;});
+addEventListener('wheel',e=>{fov=Math.max(0.4,Math.min(3.5,fov-e.deltaY*0.0013));},{passive:true});
+
+// touch: canopy drag = look, holding the dashboard = thrust, two fingers = pinch zoom
+let tThrust=false,pinchD=0,pinchFov=1;
+const hyp=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+addEventListener('touchstart',e=>{
+  if(e.touches.length>=2){pinchD=hyp(e.touches[0],e.touches[1]);pinchFov=fov;dragging=false;tThrust=false;return;}
+  const t=e.touches[0];
+  if(t.clientY>=dashTop){tThrust=true;}          // hold the console to thrust
+  else{dragging=true;lastX=t.clientX;lastY=t.clientY;}
+},{passive:true});
+addEventListener('touchmove',e=>{
+  if(e.touches.length>=2&&pinchD){fov=Math.max(0.4,Math.min(3.5,pinchFov*hyp(e.touches[0],e.touches[1])/pinchD));return;}
+  if(!dragging)return;const t=e.touches[0];accDX+=t.clientX-lastX;accDY+=t.clientY-lastY;lastX=t.clientX;lastY=t.clientY;
+},{passive:true});
+addEventListener('touchend',e=>{if(e.touches.length<2)pinchD=0;if(e.touches.length===0){dragging=false;tThrust=false;}});
+
+// ---------- world: stars + planets --------------------------------------
+const NEAR=0.6,FAR=1000,N=Math.min(1100,Math.max(500,(W*H/1800)|0));
+const star=[];
+function rndStar(z){return {x:(Math.random()-.5)*FAR*1.5,y:(Math.random()-.5)*FAR*1.5,
+  z:z===undefined?Math.random()*FAR+NEAR:z,
+  c:Math.random()<.16?(Math.random()<.5?'#ffd9b0':'#bcd0ff'):'#ffffff'};}
+for(let i=0;i<N;i++)star.push(rndStar());
+
+const PAL=[['#ff8a3c','#5a1f0a',0],['#d9b48a','#5a3a1a',1],['#6fa8ff','#0a1f5a',0],
+  ['#8affc0','#0a4a2a',0],['#caa6ff','#2a0a5a',1],['#ff6fae','#5a0a2a',0]];
+const NAMES=['Kepler','Vega','Orion','Lyra','Cygnus','Draco','Hydra','Nova','Atlas','Rigel','Mira','Tau','Ceti','Wolf','Proxima'];
+function planetName(sun){return NAMES[(Math.random()*NAMES.length)|0]+'-'+(100+(Math.random()*899|0))+(sun?'★':'');}
+const planet=[];
+function rndPlanet(z){
+  const sun=Math.random()<0.13, pal=PAL[(Math.random()*PAL.length)|0];
+  return {x:(Math.random()-.5)*1300,y:(Math.random()-.5)*900,
+    z:z===undefined?Math.random()*FAR+200:z,
+    r:sun?260+Math.random()*260:14+Math.random()*120,
+    sun, pal, ring:pal[2]===1, tilt:(Math.random()-.5),
+    hue:Math.random()*360, ph:Math.random()*6.28, name:planetName(sun)};
+}
+for(let i=0;i<7;i++)planet.push(rndPlanet());
+
+// ---------- nav computer: target lock + waypoint ------------------------
+let targetRef=null, arrived=0, lastArrived='';
+const ARRIVE=95;
+const distKm = p => (p.z*52)|0;
+function farthest(){let best=null,bz=-1;for(const p of planet){if(p.z<FAR&&p.z>bz){bz=p.z;best=p;}}return best;}
+function lockNearest(){let best=null,bz=1e9;for(const p of planet){if(p.z>NEAR&&p.z<bz){bz=p.z;best=p;}}if(best)targetRef=best;}
+targetRef=farthest();
+
+function hx(c){return [parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)];}
+function mix(a,b,t){const p=hx(a),q=hx(b);
+  return `rgb(${(p[0]+(q[0]-p[0])*t)|0},${(p[1]+(q[1]-p[1])*t)|0},${(p[2]+(q[2]-p[2])*t)|0})`;}
+
+const LIGHT={x:-0.5,y:-0.55};
+function drawPlanet(p,sx,sy,R,sf){
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  const gR=R*(p.sun?2.7:1.7);
+  const halo=ctx.createRadialGradient(sx,sy,R*0.55,sx,sy,gR);
+  halo.addColorStop(0,p.sun?'rgba(255,205,115,0.95)':`hsla(${p.hue},80%,70%,0.45)`);
+  halo.addColorStop(1,'transparent');
+  ctx.fillStyle=halo;ctx.fillRect(sx-gR,sy-gR,gR*2,gR*2);ctx.restore();
+  if(p.sun){
+    const g=ctx.createRadialGradient(sx,sy,0,sx,sy,R);
+    g.addColorStop(0,'#fffef2');g.addColorStop(.4,'#ffd66a');g.addColorStop(.8,'#ff8a2a');g.addColorStop(1,'#ff5a1a');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(sx,sy,R,0,6.2832);ctx.fill();return;
+  }
+  if(p.ring) ring(p,sx,sy,R,true);
+  const lx=sx+LIGHT.x*R,ly=sy+LIGHT.y*R;
+  const g=ctx.createRadialGradient(lx,ly,R*0.1,sx,sy,R*1.25);
+  g.addColorStop(0,p.pal[0]);g.addColorStop(.55,mix(p.pal[0],p.pal[1],.45));g.addColorStop(1,p.pal[1]);
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(sx,sy,R,0,6.2832);ctx.fill();
+  ctx.save();ctx.beginPath();ctx.arc(sx,sy,R,0,6.2832);ctx.clip();ctx.globalAlpha=.16;
+  for(let i=0;i<3;i++){const by=sy-R+R*0.55*i+Math.sin(p.ph+i)*R*0.18;
+    const bg=ctx.createLinearGradient(0,by-R*0.16,0,by+R*0.16);
+    bg.addColorStop(0,'transparent');bg.addColorStop(.5,p.pal[1]);bg.addColorStop(1,'transparent');
+    ctx.fillStyle=bg;ctx.fillRect(sx-R,by-R*0.16,R*2,R*0.32);}
+  ctx.restore();
+  const sh=ctx.createRadialGradient(lx,ly,R*0.2,sx-LIGHT.x*R*0.4,sy-LIGHT.y*R*0.4,R*1.45);
+  sh.addColorStop(0,'transparent');sh.addColorStop(.65,'rgba(0,0,8,0)');sh.addColorStop(1,'rgba(0,0,10,.9)');
+  ctx.fillStyle=sh;ctx.beginPath();ctx.arc(sx,sy,R,0,6.2832);ctx.fill();
+  if(p.ring) ring(p,sx,sy,R,false);
+}
+function ring(p,sx,sy,R,back){
+  ctx.save();ctx.translate(sx,sy);ctx.rotate(p.tilt);ctx.scale(1,0.32);ctx.lineWidth=R*0.18;
+  const rg=ctx.createRadialGradient(0,0,R*1.25,0,0,R*2.1);
+  rg.addColorStop(0,'rgba(255,235,200,0)');rg.addColorStop(.4,`hsla(${p.hue},45%,72%,.6)`);
+  rg.addColorStop(.7,`hsla(${p.hue},50%,60%,.32)`);rg.addColorStop(1,'transparent');
+  ctx.strokeStyle=rg;ctx.beginPath();
+  back?ctx.arc(0,0,R*1.7,Math.PI,2*Math.PI):ctx.arc(0,0,R*1.7,0,Math.PI);
+  ctx.stroke();ctx.restore();
+}
+
+function nebula(){
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  const par=yaw*180;
+  const blobs=[['#3a2a6a',.12],['#274a8c',.10],['#7a2a5a',.09],['#1a3a6a',.11]];
+  for(let i=0;i<blobs.length;i++){
+    const px=((i*430-par)%(W+900)+W+900)%(W+900)-450;
+    const py=CY+Math.sin(i*1.7)*H*0.24 + pitch*200;
+    const R=Math.max(W,H)*0.6;
+    const g=ctx.createRadialGradient(px,py,0,px,py,R);
+    g.addColorStop(0,blobs[i][0]);g.addColorStop(1,'transparent');
+    ctx.globalAlpha=blobs[i][1];ctx.fillStyle=g;ctx.fillRect(px-R,py-R,R*2,R*2);
+  }
+  ctx.restore();
+}
+
+// ---------- cockpit shell -----------------------------------------------
+function canopyPath(){ctx.beginPath();ctx.moveTo(canopy[0][0],canopy[0][1]);
+  for(let i=1;i<canopy.length;i++)ctx.lineTo(canopy[i][0],canopy[i][1]);ctx.closePath();}
+
+function drawHull(){
+  ctx.save();
+  ctx.beginPath();ctx.rect(0,0,W,H);
+  ctx.moveTo(canopy[0][0],canopy[0][1]);
+  for(let i=canopy.length-1;i>=0;i--)ctx.lineTo(canopy[i][0],canopy[i][1]);
+  const hull=ctx.createLinearGradient(0,0,0,H);
+  hull.addColorStop(0,'#10141c');hull.addColorStop(.5,'#1b2230');hull.addColorStop(1,'#05070b');
+  ctx.fillStyle=hull;ctx.fill('evenodd');ctx.restore();
+
+  ctx.save();canopyPath();ctx.clip();
+  const refl=ctx.createLinearGradient(0,H*0.06,0,dashTop);
+  refl.addColorStop(0,'rgba(120,170,255,0.10)');refl.addColorStop(.3,'rgba(120,170,255,0.02)');
+  refl.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=refl;ctx.fillRect(0,0,W,H);
+  const vig=ctx.createRadialGradient(CX,CY*0.9,H*0.2,CX,CY,H*0.85);
+  vig.addColorStop(0,'transparent');vig.addColorStop(1,'rgba(0,0,6,0.6)');
+  ctx.fillStyle=vig;ctx.fillRect(0,0,W,H);ctx.restore();
+
+  ctx.lineJoin='round';
+  ctx.strokeStyle='#33445e';ctx.lineWidth=Math.max(8,H*0.016);canopyPath();ctx.stroke();
+  ctx.strokeStyle='#0c1018';ctx.lineWidth=Math.max(3,H*0.005);canopyPath();ctx.stroke();
+  ctx.strokeStyle='#2a3548';ctx.lineWidth=Math.max(7,H*0.013);
+  ctx.beginPath();ctx.moveTo(CX,H*0.06);ctx.lineTo(CX,dashTop);
+  ctx.moveTo(canopy[0][0],canopy[0][1]);ctx.lineTo(CX,H*0.30);
+  ctx.lineTo(canopy[1][0],canopy[1][1]);ctx.stroke();
+  ctx.strokeStyle='#454f63';ctx.lineWidth=2;ctx.beginPath();
+  ctx.moveTo(CX-1,H*0.06);ctx.lineTo(CX-1,dashTop);ctx.stroke();
+}
+
+function reticle(){
+  ctx.save();ctx.strokeStyle='rgba(120,230,170,.7)';ctx.lineWidth=1.5;
+  ctx.shadowColor='#0f8';ctx.shadowBlur=6;
+  ctx.beginPath();ctx.arc(CX,CY,13,0,6.2832);ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(CX-26,CY);ctx.lineTo(CX-15,CY);ctx.moveTo(CX+15,CY);ctx.lineTo(CX+26,CY);
+  ctx.moveTo(CX,CY-26);ctx.lineTo(CX,CY-15);ctx.moveTo(CX,CY+15);ctx.lineTo(CX,CY+26);
+  ctx.stroke();
+  ctx.fillStyle='rgba(120,230,170,.9)';ctx.fillRect(CX-1,CY-1,2,2);
+  ctx.restore();
+}
+
+function txt(s,x,y,col,size,al){ctx.fillStyle=col;ctx.font='700 '+size+'px ui-monospace,monospace';
+  ctx.textAlign=al||'left';ctx.shadowColor=col;ctx.shadowBlur=8;ctx.fillText(s,x,y);ctx.shadowBlur=0;}
+
+// target reticle: brackets when in view, edge arrow when off-screen, "behind" hint when past you
+function drawTarget(){
+  if(!targetRef)return;const p=targetRef,grn='#8affc0',cyan='#7fe0ff';
+  if(p.z<=NEAR){txt('◀  TARGET BEHIND — TURN AROUND  ▶',CX,H*0.11,grn,12,'center');return;}
+  const eff=F*fov,k=eff/p.z;
+  const bx=CX+p.x*k, by=CY+p.y*k, dx=bx-CX, dy=by-CY, c=Math.cos(roll), s=Math.sin(roll);
+  const sx=CX+dx*c-dy*s, sy=CY+dx*s+dy*c;
+  const Rr=Math.max(8,p.r*k), d=distKm(p).toLocaleString()+' km';
+  const on = sx>40&&sx<W-40&&sy>H*0.05&&sy<dashTop-10;
+  if(on){
+    const b=Math.min(Math.max(Rr*1.25,16),130), len=b*0.42;
+    ctx.save();ctx.strokeStyle=grn;ctx.lineWidth=2;ctx.shadowColor=grn;ctx.shadowBlur=6;
+    for(const [ox,oy] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
+      const cx=sx+ox*b, cy=sy+oy*b;
+      ctx.beginPath();ctx.moveTo(cx-ox*len,cy);ctx.lineTo(cx,cy);ctx.lineTo(cx,cy-oy*len);ctx.stroke();
+    }
+    ctx.restore();
+    txt(p.name,sx,sy-b-8,grn,12,'center');
+    txt(d,sx,sy+b+18,cyan,11,'center');
+  }else{
+    const ang=Math.atan2(sy-CY,sx-CX), rad=Math.min(W,H)*0.42;
+    const ex=CX+Math.cos(ang)*rad, ey=CY+Math.sin(ang)*rad;
+    ctx.save();ctx.translate(ex,ey);ctx.rotate(ang);ctx.fillStyle=grn;ctx.shadowColor=grn;ctx.shadowBlur=6;
+    ctx.beginPath();ctx.moveTo(15,0);ctx.lineTo(-9,-9);ctx.lineTo(-9,9);ctx.closePath();ctx.fill();ctx.restore();
+    txt(p.name+'  ▸  '+d,CX,H*0.11,grn,12,'center');
+  }
+}
+
+function dashboard(sf){
+  const g=ctx.createLinearGradient(0,dashTop,0,H);
+  g.addColorStop(0,'#161d28');g.addColorStop(.12,'#0c111a');g.addColorStop(1,'#05070c');
+  ctx.fillStyle=g;ctx.fillRect(0,dashTop,W,H-dashTop);
+  ctx.fillStyle='rgba(90,160,255,.5)';ctx.fillRect(0,dashTop,W,2);
+  const pad=Math.max(16,W*0.03), by=dashTop+Math.max(26,(H-dashTop)*0.3);
+  const cyan='#7fe0ff',amber='#ffcf6a',green='#8affc0';
+
+  // destination strip (nav computer) — top of the dashboard
+  if(targetRef){
+    const ang=((Math.atan2(targetRef.x,Math.max(targetRef.z,1))*57.3)|0);
+    txt('▶ DEST '+targetRef.name+'   '+distKm(targetRef).toLocaleString()+' km   BRG '+(ang>0?'+':'')+ang+'°',
+      CX,dashTop+16,green,11,'center');
+  }
+
+  // throttle bar (left)
+  const tw=Math.min(150,W*0.16);
+  txt('THROTTLE',pad,by-8,cyan,11);
+  ctx.strokeStyle='#2a3a52';ctx.lineWidth=1;ctx.strokeRect(pad,by,tw,12);
+  const tg=ctx.createLinearGradient(pad,0,pad+tw,0);
+  tg.addColorStop(0,'#0af');tg.addColorStop(.6,'#7fffd4');tg.addColorStop(1,'#fff');
+  ctx.fillStyle=tg;ctx.fillRect(pad,by,tw*(speed/MAX),12);
+  txt((speed/MAX*100|0)+'%',pad,by+30,amber,12);
+  if(TOUCH) txt('▲ HOLD HERE TO THRUST',pad,by+52,'rgba(127,224,255,.7)',10);
+
+  // speed (center)
+  const kms=Math.round(speed*speed*0.7);
+  if(sf>0.985){txt('LIGHTSPEED',CX,by+6,amber,Math.min(30,W*0.035),'center');}
+  else{txt(kms.toLocaleString(),CX,by+6,'#ffffff',Math.min(30,W*0.04),'center');
+       txt('KM / S',CX,by+26,cyan,11,'center');}
+
+  // attitude indicator (right)
+  const ar=Math.min(46,(H-dashTop)*0.42), ax=W-pad-ar, ay=by+ar*0.4;
+  ctx.save();ctx.beginPath();ctx.arc(ax,ay,ar,0,6.2832);ctx.clip();
+  ctx.translate(ax,ay);ctx.rotate(-roll);ctx.translate(0,pitch*ar*1.3);
+  ctx.fillStyle='#15436e';ctx.fillRect(-ar*2,-ar*2,ar*4,ar*2);
+  ctx.fillStyle='#5a3a1a';ctx.fillRect(-ar*2,0,ar*4,ar*2);
+  ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(-ar*2,0);ctx.lineTo(ar*2,0);ctx.stroke();
+  ctx.restore();
+  ctx.strokeStyle='#33445e';ctx.lineWidth=3;ctx.beginPath();ctx.arc(ax,ay,ar,0,6.2832);ctx.stroke();
+  ctx.strokeStyle=green;ctx.lineWidth=2;ctx.beginPath();
+  ctx.moveTo(ax-ar*0.5,ay);ctx.lineTo(ax-ar*0.15,ay);ctx.moveTo(ax+ar*0.15,ay);ctx.lineTo(ax+ar*0.5,ay);ctx.stroke();
+  txt('HDG '+((yaw*57.3%360+360)%360|0).toString().padStart(3,'0'),ax,ay+ar+18,cyan,11,'center');
+
+  txt('SCALE ×'+fov.toFixed(2),CX+W*0.16,by+30,green,12,'center');
+}
+
+// ---------- loop ---------------------------------------------------------
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+
+  const fwd=(key['KeyW']||key['Space']||key['ArrowUp']||tThrust)?1:0;
+  const back=(key['KeyS']||key['ArrowDown'])?1:0;
+  if(fwd) speed+=MAX*1.1*dt;
+  else if(back) speed-=MAX*1.4*dt;
+  else speed*= (speed>0?Math.pow(0.06,dt):1);
+  speed=Math.max(0,Math.min(MAX,speed));
+  if(speed<0.4 && !fwd) speed=0;
+
+  const sf=speed/MAX;
+  if(sf>0.985 && jump<0.5) jump=1; jump*=Math.pow(0.015,dt);
+
+  const dyaw   = -accDX*0.0017;
+  const dpitch =  accDY*0.0017;
+  accDX=accDY=0;
+  let droll=0;
+  if(key['KeyQ']) droll-=1.4*dt;
+  if(key['KeyE']) droll+=1.4*dt;
+  yaw+=dyaw;pitch=Math.max(-1.4,Math.min(1.4,pitch+dpitch));roll+=droll;
+  if(!key['KeyQ']&&!key['KeyE']) roll*=Math.pow(0.06,dt);   // auto-level when hands off the roll
+  const ca=Math.cos(dyaw),sa=Math.sin(dyaw),cp=Math.cos(dpitch),sp=Math.sin(dpitch);
+  const eff=F*fov, advance=speed*dt*60;
+
+  ctx.fillStyle=`rgba(2,3,9,${0.6-sf*0.4})`;ctx.fillRect(0,0,W,H);
+
+  ctx.save();canopyPath();ctx.clip();
+  nebula();
+  ctx.translate(CX,CY);ctx.rotate(roll);ctx.translate(-CX,-CY);
+
+  ctx.lineCap='round';
+  for(let i=0;i<star.length;i++){
+    const s=star[i];
+    let nx=s.x*ca+s.z*sa,nz=-s.x*sa+s.z*ca;s.x=nx;s.z=nz;
+    let ny=s.y*cp-s.z*sp;nz=s.y*sp+s.z*cp;s.y=ny;s.z=nz;
+    const zPrev=s.z+advance; s.z-=advance;
+    if(s.z<NEAR){const r=rndStar(FAR);s.x=r.x;s.y=r.y;s.z=r.z;s.c=r.c;continue;}
+    if(s.z>FAR){const r=rndStar(NEAR+Math.random()*5);s.x=r.x;s.y=r.y;s.z=r.z;s.c=r.c;continue;}
+    const k=eff/s.z,sx=CX+s.x*k,sy=CY+s.y*k;
+    if(sx<-40||sx>W+40||sy<-40||sy>H+40)continue;
+    const depth=1-s.z/FAR, sz=Math.max(0.5,depth*2.3*fov);
+    if(sf<0.05){ctx.globalAlpha=0.3+depth*0.7;ctx.fillStyle=s.c;ctx.fillRect(sx-sz*0.5,sy-sz*0.5,sz,sz);}
+    else{const kp=eff/zPrev,px=CX+s.x*kp,py=CY+s.y*kp;
+      ctx.globalAlpha=0.35+depth*0.65;ctx.strokeStyle=s.c;ctx.lineWidth=sz;
+      ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(sx,sy);ctx.stroke();}
+  }
+  ctx.globalAlpha=1;
+
+  for(let i=0;i<planet.length;i++){
+    const p=planet[i];
+    let nx=p.x*ca+p.z*sa,nz=-p.x*sa+p.z*ca;p.x=nx;p.z=nz;
+    let ny=p.y*cp-p.z*sp;nz=p.y*sp+p.z*cp;p.y=ny;p.z=nz;
+    p.z-=advance;
+    if(p.z<NEAR||p.z>FAR+250){const r=rndPlanet(p.z<NEAR?FAR+Math.random()*200:NEAR+Math.random()*5);
+      Object.assign(p,r); if(p===targetRef) targetRef=null;}
+  }
+  planet.sort((a,b)=>b.z-a.z);
+  for(let i=0;i<planet.length;i++){const p=planet[i];if(p.z<NEAR)continue;
+    const k=eff/p.z,sx=CX+p.x*k,sy=CY+p.y*k,R=p.r*k;
+    if(R<0.6||sx+R<-60||sx-R>W+60||sy+R<-60||sy-R>H+60)continue;
+    ctx.globalAlpha=Math.max(0.06,1-sf*0.9);
+    drawPlanet(p,sx,sy,Math.min(R,Math.max(W,H)*1.9),sf);ctx.globalAlpha=1;}
+  ctx.restore();
+
+  // nav: detect arrival, keep a waypoint locked at all times
+  if(targetRef && targetRef.z<ARRIVE){lastArrived=targetRef.name;arrived=1;targetRef=null;}
+  arrived = arrived>0.01 ? arrived*Math.pow(0.05,dt) : 0;
+  if(!targetRef) targetRef=farthest();
+
+  if(jump>0.02){ctx.save();canopyPath();ctx.clip();
+    ctx.fillStyle=`rgba(205,228,255,${jump*0.8})`;ctx.fillRect(0,0,W,H);ctx.restore();}
+
+  drawHull();
+  reticle();
+  drawTarget();
+  if(arrived>0.05){ctx.globalAlpha=Math.min(1,arrived);
+    txt('✦ REACHED '+lastArrived,CX,H*0.18,'#ffcf6a',Math.min(26,W*0.03),'center');ctx.globalAlpha=1;}
+  dashboard(sf);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body></html>
